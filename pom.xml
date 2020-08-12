@@ -4,9 +4,9 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.cqrs</groupId>
-    <artifactId>spring-command-controller</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <groupId>com.github.xprt64</groupId>
+    <artifactId>cqrs-spring-command-controller</artifactId>
+    <version>1.0</version>
     <build>
         <plugins>
             <plugin>
@@ -26,9 +26,9 @@
 
     <dependencies>
         <dependency>
-            <groupId>com.cqrs</groupId>
-            <artifactId>core</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <groupId>com.github.xprt64</groupId>
+            <artifactId>cqrs</artifactId>
+            <version>1.0</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

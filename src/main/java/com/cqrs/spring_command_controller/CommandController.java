@@ -4,6 +4,7 @@ import com.cqrs.aggregates.AggregateCommandHandlingException;
 import com.cqrs.base.Command;
 import com.cqrs.commands.AnnotatedCommandSubscriberMap;
 import com.cqrs.commands.CommandDispatcher;
+import com.cqrs.commands.CommandRejectedByValidators;
 import com.cqrs.events.EventWithMetaData;
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -26,6 +27,7 @@ import java.io.IOException;
 import java.security.InvalidParameterException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Controller
 @RequestMapping("/commands")
@@ -52,28 +54,7 @@ public class CommandController {
         if (annotatedCommandSubscriberMap.getMap().get(requestBody.type) == null) {
             throw new InvalidParameterException("Command class not valid");
         }
-        dispatchCommand(requestBody).toArray(new EventWithMetaData[0]);
-    }
-
-    private List<EventWithMetaData> dispatchCommand(Body requestBody) throws ExceptionCaught {
-        try {
-            System.out.println("dispatching command " + requestBody.type);
-            return commandDispatcher.dispatchCommand((Command) objectMapper.readValue(requestBody.payload, Class.forName(requestBody.type)));
-        } catch (AggregateCommandHandlingException e) {
-            e.printStackTrace();
-            throw new ExceptionCaught(HttpStatus.INTERNAL_SERVER_ERROR, e.getCause());
-        } catch (Throwable e) {
-            e.printStackTrace();
-            throw new ExceptionCaught(HttpStatus.INTERNAL_SERVER_ERROR, e);
-        }
-    }
-
-    @ExceptionHandler(ExceptionCaught.class)
-    public ResponseEntity<Error> error(ExceptionCaught ex) {
-        return new ResponseEntity<Error>(
-            new Error(ex.getCause().getClass().getCanonicalName(), ex.getCause().getMessage()),
-            ex.code
-        );
+        dispatchCommand(requestBody);
     }
 
     @PostMapping("/dispatchAndReturnEvents")
@@ -94,6 +75,37 @@ public class CommandController {
         } finally {
             response.getOutputStream().close();
         }
+    }
+
+    private List<EventWithMetaData> dispatchCommand(Body requestBody) throws ExceptionCaught {
+        try {
+            System.out.println("dispatching command " + requestBody.type);
+            return commandDispatcher.dispatchCommand((Command) objectMapper.readValue(requestBody.payload, Class.forName(requestBody.type)));
+        } catch (AggregateCommandHandlingException e) {
+            e.getCause().printStackTrace();
+            throw new ExceptionCaught(HttpStatus.INTERNAL_SERVER_ERROR, e.getCause());
+        }  catch (CommandRejectedByValidators e) {
+            throw e;
+        } catch (Throwable e) {
+            e.printStackTrace();
+            throw new ExceptionCaught(HttpStatus.INTERNAL_SERVER_ERROR, e);
+        }
+    }
+
+    @ExceptionHandler(ExceptionCaught.class)
+    public ResponseEntity<Error> error(ExceptionCaught ex) {
+        return new ResponseEntity<>(
+            new Error(ex.getCause().getClass().getCanonicalName(), ex.getCause().getMessage()),
+            ex.code
+        );
+    }
+
+    @ExceptionHandler(CommandRejectedByValidators.class)
+    public ResponseEntity<List<Error>> error(CommandRejectedByValidators ex) {
+        return new ResponseEntity<>(
+            ex.getErrors().stream().map(e -> new Error(e.getClass().getCanonicalName(), e.getMessage())).collect(Collectors.toList()),
+            HttpStatus.INTERNAL_SERVER_ERROR
+        );
     }
 
     private ObjectMapper serializer() {

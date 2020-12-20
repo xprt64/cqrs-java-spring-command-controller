@@ -10,17 +10,12 @@ import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.annotation.PropertyAccessor;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.module.paramnames.ParameterNamesModule;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
-import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -35,28 +30,29 @@ public class CommandController {
 
     private final CommandDispatcher commandDispatcher;
     private final AnnotatedCommandSubscriberMap annotatedCommandSubscriberMap;
-    private final ObjectMapper objectMapper;
+    private final ObjectMapper fontendDeserializer;
     private final ObjectMapper serializer;
 
     public CommandController(
         CommandDispatcher commandDispatcher,
-        AnnotatedCommandSubscriberMap annotatedCommandSubscriberMap,
-        ObjectMapper objectMapper
+        AnnotatedCommandSubscriberMap annotatedCommandSubscriberMap
     ) {
         this.commandDispatcher = commandDispatcher;
         this.annotatedCommandSubscriberMap = annotatedCommandSubscriberMap;
-        this.objectMapper = objectMapper;
+        this.fontendDeserializer = frontendDeserializer();
         this.serializer = serializer();
     }
 
     @PostMapping("/dispatch")
-    public void dispatch(@RequestBody Body requestBody) throws ExceptionCaught {
+    @CrossOrigin
+    public void dispatch(@RequestBody Body requestBody, HttpServletResponse response) throws ExceptionCaught {
         if (annotatedCommandSubscriberMap.getMap().get(requestBody.type) == null) {
             throw new InvalidParameterException("Command class not valid");
         }
         dispatchCommand(requestBody);
     }
 
+    @CrossOrigin
     @PostMapping("/dispatchAndReturnEvents")
     public void dispatchAndReturnEvents(@RequestBody Body requestBody, HttpServletResponse response) throws IOException, ExceptionCaught {
         if (annotatedCommandSubscriberMap.getMap().get(requestBody.type) == null) {
@@ -80,12 +76,15 @@ public class CommandController {
     private List<EventWithMetaData> dispatchCommand(Body requestBody) throws ExceptionCaught {
         try {
             System.out.println("dispatching command " + requestBody.type);
-            return commandDispatcher.dispatchCommand((Command) objectMapper.readValue(requestBody.payload, Class.forName(requestBody.type)));
+            List<EventWithMetaData> result = commandDispatcher.dispatchCommand(
+                (Command) fontendDeserializer.readValue(requestBody.payload, Class.forName(requestBody.type)));
+            System.out.println("command dispatched, events: " + result.size());
+            return result;
         } catch (AggregateCommandHandlingException e) {
             e.getCause().printStackTrace();
             throw new ExceptionCaught(HttpStatus.INTERNAL_SERVER_ERROR, e.getCause());
         }  catch (CommandRejectedByValidators e) {
-            throw e;
+            throw new ExceptionCaught(HttpStatus.INTERNAL_SERVER_ERROR, e);
         } catch (Throwable e) {
             e.printStackTrace();
             throw new ExceptionCaught(HttpStatus.INTERNAL_SERVER_ERROR, e);
@@ -94,7 +93,7 @@ public class CommandController {
 
     @ExceptionHandler(ExceptionCaught.class)
     public ResponseEntity<Error> error(ExceptionCaught ex) {
-        return new ResponseEntity<>(
+        return new ResponseEntity<Error>(
             new Error(ex.getCause().getClass().getCanonicalName(), ex.getCause().getMessage()),
             ex.code
         );
@@ -117,6 +116,13 @@ public class CommandController {
         return mapper;
     }
 
+    private ObjectMapper frontendDeserializer() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.setVisibility(PropertyAccessor.FIELD, JsonAutoDetect.Visibility.ANY);
+        mapper.registerModule(new ParameterNamesModule(JsonCreator.Mode.PROPERTIES));
+        mapper.findAndRegisterModules();
+        return mapper;
+    }
     public static class Body {
         public String payload;
         public String type;
